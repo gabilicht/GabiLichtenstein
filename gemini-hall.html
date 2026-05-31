@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Simulador de Efeito Hall</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #1a1a1a; color: #f5f5f5; margin: 0; padding: 40px; }
+        h1 { color: #deff9a; }
+        .voltmeter { font-family: 'Courier New', Courier, monospace; font-size: 32px; margin: 20px 0; padding: 15px 30px; background: #0a0a0a; border: 2px solid #deff9a; border-radius: 10px; box-shadow: 0 0 15px rgba(222, 255, 154, 0.2); }
+        canvas { background: #2a2a2a; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 30px; }
+        .controls { display: flex; gap: 30px; background: #2a2a2a; padding: 20px 40px; border-radius: 10px; border: 1px solid #444; }
+        label { display: flex; flex-direction: column; font-size: 16px; gap: 10px; }
+        select, input { padding: 8px; border-radius: 5px; border: 1px solid #555; background: #1a1a1a; color: white; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+    <h1>Efeito Hall</h1>
+    <div class="voltmeter">Tensão de Hall ($V_H$): <span id="vh" style="color: #deff9a;">0.00</span> V</div>
+    <canvas id="simCanvas" width="800" height="300"></canvas>
+    
+    <div class="controls">
+        <label>
+            Tipo de Portador de Carga:
+            <select id="carrier">
+                <option value="-1">Elétrons (-) [Corrente Real]</option>
+                <option value="1">Buracos (+) [Corrente Convencional]</option>
+            </select>
+        </label>
+        <label>
+            Campo Magnético (B): <span id="bval">1.0</span> T
+            <input type="range" id="bfield" min="-5" max="5" step="0.5" value="1">
+        </label>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const carrierSelect = document.getElementById('carrier');
+        const bfieldInput = document.getElementById('bfield');
+        const bvalDisplay = document.getElementById('bval');
+        const vhDisplay = document.getElementById('vh');
+
+        let particles = [];
+        const stripY = 75;
+        const stripH = 150;
+
+        class Particle {
+            constructor() {
+                this.reset();
+                this.x = Math.random() * canvas.width; 
+            }
+            reset() {
+                const q = parseInt(carrierSelect.value);
+                this.y = stripY + Math.random() * stripH;
+                this.vy = 0;
+                // Elétrons para a esquerda, Buracos para a direita (Corrente final é sempre para a direita)
+                if (q === -1) {
+                    this.x = canvas.width + 10;
+                    this.vx = -3;
+                } else {
+                    this.x = -10;
+                    this.vx = 3;
+                }
+            }
+            update(B, q) {
+                // Cálculo simplificado da Força de Lorentz para a visualização
+                let forceY = -1 * Math.sign(this.vx) * B * q; 
+                
+                this.vy += forceY * 0.1;
+                this.vy *= 0.9; // Amortecimento
+                
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Mantém as partículas dentro da fita condutora
+                if (this.y < stripY + 5) this.y = stripY + 5;
+                if (this.y > stripY + stripH - 5) this.y = stripY + stripH - 5;
+
+                // Reinicia quando sai da tela
+                if ((q === -1 && this.x < -20) || (q === 1 && this.x > canvas.width + 20)) {
+                    this.reset();
+                }
+            }
+            draw(q) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = q === 1 ? '#ff5555' : '#55aaff';
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < 200; i++) particles.push(new Particle());
+
+        function drawBField(B) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            let symbol = B > 0 ? '⊗' : (B < 0 ? '⊙' : '');
+            if (!symbol) return;
+            
+            for (let x = 40; x < canvas.width; x += 80) {
+                for (let y = stripY + 20; y < stripY + stripH; y += 40) {
+                    ctx.fillText(symbol, x, y);
+                }
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const q = parseInt(carrierSelect.value);
+            const B = parseFloat(bfieldInput.value);
+            bvalDisplay.innerText = B.toFixed(1);
+
+            // Desenha a fita
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, stripY, canvas.width, stripH);
+            
+            drawBField(B);
+
+            let topAccumulation = 0;
+            let bottomAccumulation = 0;
+
+            particles.forEach(p => {
+                p.update(B, q);
+                p.draw(q);
+                if (p.y < stripY + 20) topAccumulation++;
+                if (p.y > stripY + stripH - 20) bottomAccumulation++;
+            });
+
+            // Calcula e exibe a voltagem baseada no acúmulo das bordas
+            let voltage = (topAccumulation - bottomAccumulation) * q * 0.05;
+            vhDisplay.innerText = voltage.toFixed(2);
+            vhDisplay.style.color = voltage > 0 ? '#ff5555' : (voltage < 0 ? '#55aaff' : '#deff9a');
+
+            // Sentido da Corrente
+            ctx.fillStyle = '#fff';
+            ctx.font = '16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText("Corrente Macroscópica (I) ➔", canvas.width / 2, stripY - 20);
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
